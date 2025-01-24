@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Online MCQ Test Simulator</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 0;
+      background-color: #f4f4f4;
+    }
+    header {
+      background-color: #007BFF;
+      color: white;
+      padding: 10px 0;
+      text-align: center;
+    }
+    footer {
+      background-color: #007BFF;
+      color: white;
+      padding: 10px 0;
+      text-align: center;
+      position: fixed;
+      bottom: 0;
+      width: 100%;
+    }
+    .container {
+      max-width: 800px;
+      margin: 70px auto;
+      padding: 20px;
+      background: #fff;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    }
+    .hidden {
+      display: none;
+    }
+    .question {
+      margin-bottom: 20px;
+    }
+    .question h3 {
+      font-size: 18px;
+    }
+    .options {
+      margin: 10px 0;
+    }
+    .options label {
+      display: block;
+      margin-bottom: 5px;
+      cursor: pointer;
+    }
+    .btn {
+      display: inline-block;
+      margin: 10px 5px;
+      padding: 10px 20px;
+      background-color: #28a745;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+    }
+    .btn:hover {
+      background-color: #218838;
+    }
+    .btn-secondary {
+      background-color: #007BFF;
+    }
+    .btn-secondary:hover {
+      background-color: #0056b3;
+    }
+    .error {
+      color: red;
+      font-size: 14px;
+    }
+    .result {
+      margin-top: 20px;
+      padding: 20px;
+      background: #f8f9fa;
+      border-radius: 5px;
+    }
+    .result.correct {
+      background-color: #d4edda;
+      color: #155724;
+    }
+    .result.incorrect {
+      background-color: #f8d7da;
+      color: #721c24;
+    }
+    .timer {
+      font-size: 16px;
+      font-weight: bold;
+      text-align: center;
+      margin-bottom: 20px;
+    }
+    .question-tabs {
+      display: flex;
+      gap: 5px;
+      justify-content: center;
+      margin-bottom: 15px;
+      flex-wrap: wrap;
+    }
+    .tab {
+      width: 30px;
+      height: 30px;
+      line-height: 30px;
+      text-align: center;
+      border-radius: 50%;
+      background-color: #f1f1f1;
+      cursor: pointer;
+      user-select: none;
+    }
+    .tab.answered {
+      background-color: #28a745;
+      color: white;
+    }
+    .tab.unanswered {
+      background-color: #dc3545;
+      color: white;
+    }
+    .tab.review {
+      background-color: #ffc107;
+      color: black;
+    }
+    @media (max-width: 768px) {
+      .container {
+        margin: 20px;
+        padding: 15px;
+      }
+      body {
+        padding-bottom: 70px; /* Prevent footer overlap */
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>MCQ Test Simulator</h1>
+  </header>
+
+  <div class="container" id="upload-container">
+    <h2>Upload Your Questions</h2>
+    <label for="question-upload" class="btn">Upload Questions</label>
+    <input type="file" id="question-upload" accept=".json" style="display: none;" />
+    <p id="upload-error" class="error hidden">Invalid file format. Please upload a valid JSON file.</p>
+  </div>
+
+  <div class="container hidden" id="quiz-container">
+    <div class="timer" id="timer" aria-live="polite"></div>
+    <div class="question-tabs" id="question-tabs"></div>
+    <div id="quiz"></div>
+    <div class="navigation">
+      <button class="btn btn-secondary" id="prev-btn" disabled>Previous</button>
+      <button class="btn btn-secondary" id="next-btn">Next</button>
+    </div>
+    <p id="validationError" class="error hidden" role="status">Please answer all questions before submitting.</p>
+    <button class="btn" id="submit-btn">Submit</button>
+  </div>
+
+  <div class="container hidden" id="result-container">
+    <h2>Your Results</h2>
+    <div id="results"></div>
+    <button class="btn" id="restart-btn">Back to Test</button>
+  </div>
+
+  <footer>
+    <p>&copy; 2025 MCQ Test Simulator</p>
+  </footer>
+
+  <script>
+    let questions = [];
+    let currentQuestionIndex = 0;
+    let answers = [];
+    let review = [];
+    let timer;
+    let totalTime = 0;
+
+    const uploadContainer = document.getElementById('upload-container');
+    const quizContainer = document.getElementById('quiz-container');
+    const resultContainer = document.getElementById('result-container');
+    const questionUpload = document.getElementById('question-upload');
+    const uploadError = document.getElementById('upload-error');
+    const validationError = document.getElementById('validationError');
+    const timerDisplay = document.getElementById('timer');
+    const questionTabs = document.getElementById('question-tabs');
+    const quizElement = document.getElementById('quiz');
+
+    const prevBtn = document.getElementById('prev-btn');
+    const nextBtn = document.getElementById('next-btn');
+    const submitBtn = document.getElementById('submit-btn');
+    const restartBtn = document.getElementById('restart-btn');
+
+    questionUpload.addEventListener('change', handleFileUpload);
+    prevBtn.addEventListener('click', prevQuestion);
+    nextBtn.addEventListener('click', nextQuestion);
+    submitBtn.addEventListener('click', submitQuiz);
+    restartBtn.addEventListener('click', restartQuiz);
+
+    function handleFileUpload(event) {
+      const file = event.target.files[0];
+      if (!file) {
+        console.error("No file selected!");
+        return;
+      }
+
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        try {
+          const uploadedQuestions = JSON.parse(e.target.result);
+
+          // Validate uploaded questions
+          if (!validateQuestions(uploadedQuestions)) {
+            throw new Error('Invalid question format');
+          }
+
+          // Initialize questions and quiz
+          questions = uploadedQuestions;
+          answers = Array(questions.length).fill(null);
+          review = Array(questions.length).fill(false);
+          totalTime = questions.length * 60;
+
+          // Hide upload container and show quiz
+          uploadContainer.classList.add('hidden');
+          quizContainer.classList.remove('hidden');
+
+          startTimer();
+          renderQuestion();
+          updateQuestionTabs();
+        } catch (error) {
+          console.error(error);
+          uploadError.classList.remove('hidden');
+          setTimeout(() => uploadError.classList.add('hidden'), 3000);
+        }
+      };
+
+      reader.readAsText(file);
+    }
+
+    function validateQuestions(questions) {
+      return (
+        Array.isArray(questions) &&
+        questions.every((q) =>
+          typeof q.question === 'string' &&
+          Array.isArray(q.options) &&
+          typeof q.answer === 'number' &&
+          q.answer >= 0 &&
+          q.answer < q.options.length
+        )
+      );
+    }
+
+    function startTimer() {
+      timer = setInterval(() => {
+        const minutes = Math.floor(totalTime / 60);
+        const seconds = totalTime % 60;
+        timerDisplay.textContent = `Time Remaining: ${minutes}:${seconds < 10 ? '0' : ''}${seconds}`;
+
+        if (totalTime <= 0) {
+          clearInterval(timer);
+          submitQuiz();
+        }
+        totalTime--;
+      }, 1000);
+    }
+
+    function renderQuestion() {
+      quizElement.innerHTML = '';
+      const q = questions[currentQuestionIndex];
+
+      const questionDiv = document.createElement('div');
+      questionDiv.className = 'question';
+      const questionTitle = document.createElement('h3');
+      questionTitle.textContent = `${currentQuestionIndex + 1}. ${q.question}`;
+      questionDiv.appendChild(questionTitle);
+
+      const optionsDiv = document.createElement('div');
+      optionsDiv.className = 'options';
+
+      q.options.forEach((option, i) => {
+        const label = document.createElement('label');
+        const input = document.createElement('input');
+        input.type = 'radio';
+        input.name = `question${currentQuestionIndex}`;
+        input.value = i;
+        input.id = `q${currentQuestionIndex}-option${i}`;
+        if (answers[currentQuestionIndex] === i) input.checked = true;
+        label.setAttribute('for', input.id);
+        label.appendChild(input);
+        label.appendChild(document.createTextNode(option));
+        optionsDiv.appendChild(label);
+      });
+
+      const reviewDiv = document.createElement('div');
+      const reviewCheckbox = document.createElement('input');
+      reviewCheckbox.type = 'checkbox';
+      reviewCheckbox.checked = review[currentQuestionIndex];
+      reviewCheckbox.onchange = (e) => {
+        review[currentQuestionIndex] = e.target.checked;
+        updateQuestionTabs();
+      };
+      reviewDiv.appendChild(reviewCheckbox);
+      reviewDiv.appendChild(document.createTextNode(' Mark for review'));
+      optionsDiv.appendChild(reviewDiv);
+
+      questionDiv.appendChild(optionsDiv);
+      quizElement.appendChild(questionDiv);
+
+      prevBtn.disabled = currentQuestionIndex === 0;
+      nextBtn.disabled = currentQuestionIndex === questions.length - 1;
+    }
+
+    function storeCurrentSelection() {
+      const selected = document.querySelector(`input[name="question${currentQuestionIndex}"]:checked`);
+      if (selected) {
+        answers[currentQuestionIndex] = parseInt(selected.value);
+      }
+    }
+
+    function updateQuestionTabs() {
+      questionTabs.innerHTML = '';
+      questions.forEach((_, i) => {
+        const tab = document.createElement('div');
+        tab.className = 'tab';
+        if (answers[i] !== null) tab.classList.add('answered');
+        else if (review[i]) tab.classList.add('review');
+        else tab.classList.add('unanswered');
+        tab.textContent = i + 1;
+        tab.onclick = () => {
+          storeCurrentSelection();
+          currentQuestionIndex = i;
+          renderQuestion();
+          updateQuestionTabs();
+        };
+        questionTabs.appendChild(tab);
+      });
+    }
+
+    function nextQuestion() {
+      storeCurrentSelection();
+      if (currentQuestionIndex < questions.length - 1) {
+        currentQuestionIndex++;
+        renderQuestion();
+        updateQuestionTabs();
+      }
+    }
+
+    function prevQuestion() {
+      storeCurrentSelection();
+      if (currentQuestionIndex > 0) {
+        currentQuestionIndex--;
+        renderQuestion();
+        updateQuestionTabs();
+      }
+    }
+
+    function submitQuiz() {
+      storeCurrentSelection();
+      if (answers.includes(null)) {
+        validationError.classList.remove('hidden');
+        return;
+      }
+      validationError.classList.add('hidden');
+      quizContainer.classList.add('hidden');
+      resultContainer.classList.remove('hidden');
+      clearInterval(timer);
+
+      const resultsDiv = document.getElementById('results');
+      resultsDiv.innerHTML = '';
+      let score = 0;
+
+      questions.forEach((q, index) => {
+        const questionResult = document.createElement('div');
+        questionResult.className = 'result';
+        if (answers[index] === q.answer) {
+          questionResult.classList.add('correct');
+          score++;
+        } else {
+          questionResult.classList.add('incorrect');
+        }
+
+        const questionTitle = document.createElement('h4');
+        questionTitle.textContent = `${index + 1}. ${q.question}`;
+        questionResult.appendChild(questionTitle);
+
+        const userAnswer = document.createElement('p');
+        userAnswer.textContent = `Your Answer: ${q.options[answers[index]] || 'Not Answered'}`;
+        questionResult.appendChild(userAnswer);
+
+        const correctAnswer = document.createElement('p');
+        correctAnswer.textContent = `Correct Answer: ${q.options[q.answer]}`;
+        questionResult.appendChild(correctAnswer);
+
+        resultsDiv.appendChild(questionResult);
+      });
+
+      const scoreDiv = document.createElement('h3');
+      scoreDiv.textContent = `Your Score: ${score} out of ${questions.length}`;
+      resultsDiv.prepend(scoreDiv);
+    }
+
+    function restartQuiz() {
+      clearInterval(timer);
+      currentQuestionIndex = 0;
+      answers = Array(questions.length).fill(null);
+      review = Array(questions.length).fill(false);
+      totalTime = questions.length * 60;
+      resultContainer.classList.add('hidden');
+      quizContainer.classList.remove('hidden');
+      startTimer();
+      renderQuestion();
+      updateQuestionTabs();
+    }
+  </script>
+</body>
+</html>
